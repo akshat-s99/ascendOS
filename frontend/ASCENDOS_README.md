@@ -1,86 +1,55 @@
-# AscendOS — Adaptive Evolution Operating System
+# AscendOS — Personal Evolution Operating System
 
-A minimal, futuristic productivity dashboard for computer science students. Track focus, daily objectives, skill progress, and milestones with a subtle system-interface aesthetic.
+AscendOS is a **behavior-driven** evolution OS. It does not assign study tasks or generate academic objectives. You define activities and goals; the system tracks, analyzes, visualizes, and scores your evolution.
+
+## Core philosophy
+
+- **You define** activities, goals, routines, and path
+- **AscendOS** tracks, analyzes, visualizes, evaluates, evolves
 
 ## Features
 
-### Dashboard Sections
+| Module | Purpose |
+|--------|---------|
+| Activity Log | Log any activity (study, coding, gym, sleep, gaming, etc.) |
+| Your Goals | User-created daily / weekly / monthly / yearly goals |
+| Evolution Core | Focus, discipline, balance, consistency, growth scoring |
+| Life Analytics | Productivity trends, category balance, focus patterns |
+| Evolution Log | Timeline of activities, goals, milestones |
+| System Insights | Rule-based adaptive messages (no backend AI) |
 
-1. **System Status** — Profile, semester track, and focus metrics
-2. **Skill Progress** — Progress bar with daily, objectives, and streak bonuses
-3. **Primary Objective** — Current high-priority learning goal
-4. **Daily Objectives** — Task list with completion states
-5. **Performance Metrics** — Focus time, problems solved, concept mastery, consistency
-6. **Milestones** — Unlocked and locked achievement grid
+## Tech
 
-### Design
+- Next.js 16 · React 19 · TypeScript · Tailwind · Framer Motion
+- **LocalStorage only** (`ascendos-state-v2`)
+- No backend, APIs, or database
 
-- Dark, GitHub-inspired palette with blue accents
-- Monospace section labels and panel layout
-- Subtle Framer Motion entrance animations
-- Responsive grid (mobile-first)
-- No heavy glow or neon effects
+## Evolution engine
 
-## Tech Stack
+Scores are computed from logged behavior:
 
-- React 19
-- Next.js 16 (App Router)
-- Tailwind CSS 4
-- Framer Motion
-- TypeScript
+- **Focus** — productive time ratio
+- **Discipline** — streak + goal progress
+- **Balance** — category diversity
+- **Consistency** — active days per week
+- **Growth** — evolution points + goal completion
 
-## Project Structure
+## Project structure (B.Tech friendly)
 
 ```
-lib/constants/
-└── branding.ts              # App name, tagline, version
-
-components/dashboard/
-├── SystemStatus.tsx
-├── ExpProgressBar.tsx
-├── DailyObjectives.tsx
-├── EvolutionMetrics.tsx
-├── PriorityObjective.tsx
-└── AchievementArchive.tsx
-
-app/
-├── page.tsx
-├── layout.tsx
-└── globals.css
+lib/types/       Data models
+lib/storage/     LocalStorage persistence
+data/            Categories, defaults
+utils/           evolution.ts, analytics.ts, insights.ts, streak.ts
+hooks/           useAscend.tsx (global store)
+components/      onboarding + dashboard panels
+app/             page.tsx, onboarding/
 ```
 
-## Customization
-
-### Branding
-
-Edit `lib/constants/branding.ts` for app name, tagline, and version.
-
-### Colors
-
-Edit `app/globals.css` CSS variables (`--background`, `--primary`, etc.).
-
-### Mock Data
-
-Each dashboard component contains inline mock data arrays/objects you can replace.
-
-## Running Locally
+## Run locally
 
 ```bash
-npm install
-npm run dev
+cd frontend && npm install && npm run dev
 ```
 
-Open `http://localhost:3000`.
-
-## CSS Utilities
-
-- `.panel` — Card container
-- `.section-label` — Uppercase mono section header
-- `.section-title` — Primary section title
-- `.section-subtitle` — Muted description
-- `.progress-bar` / `.progress-fill` — Progress indicators
-- `.soft-pulse` — Status indicator animation
-
-## License
-
-Open source for personal and commercial use.
+First visit → onboarding. Then log activities and create goals on the dashboard.

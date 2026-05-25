@@ -2,79 +2,47 @@
 
 ## Quick Start
 
-### Prerequisites
-
-- Node.js 18+
-- npm, pnpm, or yarn
-
-### Installation
-
-1. Navigate to the frontend directory:
-
-   ```bash
-   cd frontend
-   ```
-
-2. Install dependencies:
-
-   ```bash
-   npm install
-   ```
-
-3. Run the development server:
-
-   ```bash
-   npm run dev
-   ```
-
-4. Open `http://localhost:3000` in your browser.
-
-## Dashboard Overview
-
-**Header:** AscendOS branding and system status indicator
-
-**Top row:**
-- System Status (profile + focus metrics)
-- Skill Progress (progress bar + bonuses)
-
-**Middle row:**
-- Primary Objective
-- Daily Objectives
-
-**Bottom:**
-- Performance Metrics
-- Milestones
-
-## Customization
-
-- **Branding:** `lib/constants/branding.ts`
-- **Theme colors:** `app/globals.css`
-- **Component data:** Edit mock data in each file under `components/dashboard/`
-
-## File Structure
-
-```
-app/
-├── page.tsx
-├── layout.tsx
-└── globals.css
-
-components/dashboard/
-├── SystemStatus.tsx
-├── ExpProgressBar.tsx
-├── DailyObjectives.tsx
-├── EvolutionMetrics.tsx
-├── PriorityObjective.tsx
-└── AchievementArchive.tsx
-```
-
-## Production Build
-
 ```bash
-npm run build
-npm start
+cd frontend
+npm install
+npm run dev
 ```
 
-## Documentation
+Open `http://localhost:3000`. First visit routes to **onboarding**; complete setup to unlock the dashboard.
 
-See `ASCENDOS_README.md` for detailed documentation.
+## Architecture
+
+```
+lib/types/          TypeScript models
+lib/storage/        LocalStorage load/save
+data/               Default objectives, skills, sprint items
+utils/              Dates, EXP, streaks, metrics, insights, GitHub mock
+hooks/useAscend.tsx Global state + persistence
+components/
+  onboarding/       Welcome + profile setup flow
+  dashboard/        All dashboard panels
+app/
+  page.tsx          Dashboard (requires onboarding)
+  onboarding/       Profile initialization
+```
+
+## Features
+
+- **Onboarding** — name, semester, goals, tech stack, GitHub (optional)
+- **Objectives** — click to complete; awards pts, updates streak & skills
+- **Streaks** — current, longest, weekly completion %
+- **Skill tree** — six CS domains with progress bars
+- **Semester sprint** — exams, assignments, projects, placement (slider progress)
+- **GitHub consistency** — mock weekly commit chart
+- **Weekly report** — frontend-generated summary
+- **System insights** — rule-based messages
+
+All data persists in **LocalStorage** (`ascendos-state-v1`).
+
+## Reconfigure
+
+Dashboard footer → **Reconfigure profile** (`/onboarding?edit=1`)
+
+## Reset
+
+Dashboard footer → **Reset system** clears storage and returns to onboarding.
