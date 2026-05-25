@@ -1,6 +1,6 @@
 export type ActivityCategory = string;
 export type CategoryGroup = 'productive' | 'rest' | 'leisure';
-export type ThemePreference = 'light' | 'dark' | 'system';
+export type ThemePreference = 'deep-midnight' | 'aurora-blue' | 'crimson-gradient' | 'arctic-light' | 'system';
 
 export type GoalPeriod = 'daily' | 'weekly' | 'monthly' | 'yearly';
 

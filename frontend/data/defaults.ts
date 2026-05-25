@@ -137,7 +137,7 @@ export const ACTIVITY_CATEGORIES = DEFAULT_CATEGORIES;
 export const GOAL_UNITS = ['hours', 'sessions', 'days', 'count', '%'];
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
-  theme: 'system',
+  theme: 'deep-midnight',
   density: 'calm',
   motion: 'full',
   productivityStyle: 'balanced',

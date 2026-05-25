@@ -252,6 +252,34 @@ export function useAscend() {
     }));
   }
 
+  function moveDashboardWidget(id: string, direction: -1 | 1) {
+    setState(prev => {
+      const widgets = [...prev.dashboardWidgets].sort((a, b) => a.order - b.order);
+      const index = widgets.findIndex((widget) => widget.id === id);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= widgets.length) return prev;
+      const [item] = widgets.splice(index, 1);
+      widgets.splice(targetIndex, 0, item);
+      return {
+        ...prev,
+        dashboardWidgets: widgets.map((widget, order) => ({ ...widget, order })),
+      };
+    });
+  }
+
+  function reorderActivities(sourceId: string, targetId: string) {
+    if (sourceId === targetId) return;
+    setState(prev => {
+      const activities = [...prev.activities];
+      const sourceIndex = activities.findIndex((activity) => activity.id === sourceId);
+      const targetIndex = activities.findIndex((activity) => activity.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return prev;
+      const [item] = activities.splice(sourceIndex, 1);
+      activities.splice(targetIndex, 0, item);
+      return { ...prev, activities };
+    });
+  }
+
   function completeOnboarding(profile: UserProfile) {
     setState(createInitialState({ ...profile, onboardingComplete: true }));
   }
@@ -287,6 +315,8 @@ export function useAscend() {
     moveCategory,
     updatePreferences,
     toggleWidget,
+    moveDashboardWidget,
+    reorderActivities,
     completeOnboarding,
     updateProfile,
     resetAll,

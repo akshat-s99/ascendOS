@@ -1,8 +1,7 @@
-import type { AscendState, EvolutionLogEntry, LegacyAscendState, UserProfile } from '@/lib/types/ascend';
+import type { AscendState, EvolutionLogEntry, LegacyAscendState, ThemePreference, UserProfile } from '@/lib/types/ascend';
 import { LEGACY_STORAGE_KEY, STORAGE_KEY } from '@/lib/storage/keys';
 import { DEFAULT_CATEGORIES, DEFAULT_DASHBOARD_WIDGETS, DEFAULT_PREFERENCES, createInitialState } from '@/data/defaults';
 import { getWeekKey } from '@/utils/dates';
-import { computeStreak } from '@/utils/streak';
 import { recalculateStreak } from '@/utils/evolution';
 
 const MAX_LOG_ENTRIES = 200;
@@ -52,7 +51,7 @@ export function hydrateState(state: AscendState): AscendState {
     ...state,
     version: 2 as const,
     categories: hydrateCategories(stored.categories),
-    preferences: { ...DEFAULT_PREFERENCES, ...(stored.preferences ?? {}) },
+    preferences: { ...DEFAULT_PREFERENCES, ...(stored.preferences ?? {}), theme: hydrateTheme(stored.preferences?.theme) },
     dashboardWidgets: hydrateWidgets(stored.dashboardWidgets),
   };
 
@@ -67,6 +66,21 @@ export function hydrateState(state: AscendState): AscendState {
   next.evolutionLog = trimLog(next.evolutionLog);
 
   return next;
+}
+
+function hydrateTheme(theme?: unknown): ThemePreference {
+  if (theme === 'light') return 'arctic-light';
+  if (theme === 'dark') return 'deep-midnight';
+  if (
+    theme === 'deep-midnight' ||
+    theme === 'aurora-blue' ||
+    theme === 'crimson-gradient' ||
+    theme === 'arctic-light' ||
+    theme === 'system'
+  ) {
+    return theme;
+  }
+  return DEFAULT_PREFERENCES.theme;
 }
 
 function hydrateCategories(categories?: AscendState['categories']): AscendState['categories'] {

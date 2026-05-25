@@ -3,41 +3,51 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
+  ArrowDown,
+  ArrowUp,
+  BarChart3,
   Bell,
-  BookOpen,
   CalendarDays,
+  Check,
   CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Circle,
   Command,
   Compass,
+  Edit3,
   Flame,
-  Gauge,
+  Focus,
+  GripVertical,
   LayoutDashboard,
   LineChart,
   ListChecks,
+  LogOut,
   Moon,
   MoreHorizontal,
-  NotebookPen,
+  Palette,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Search,
   Settings,
-  SlidersHorizontal,
   Sparkles,
   Sun,
   Target,
   Trash2,
+  Upload,
   UserRound,
   WandSparkles,
 } from 'lucide-react';
 import { APP_NAME, APP_VERSION } from '@/lib/constants/branding';
 import { CATEGORY_ICON_OPTIONS, getCategoryIcon } from '@/utils/categoryPresentation';
 import { useThemeSync } from '@/hooks/useThemeSync';
-import type { Activity as ActivityRecord, CategoryGroup, Goal, LifeCategory, UserProfile } from '@/lib/types/ascend';
+import type {
+  Activity as ActivityRecord,
+  CategoryGroup,
+  Goal,
+  LifeCategory,
+  ThemePreference,
+  UserProfile,
+} from '@/lib/types/ascend';
 import type { useAscend } from '@/hooks/useAscend';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,17 +62,18 @@ type SectionId =
   | 'activities'
   | 'goals'
   | 'analytics'
-  | 'focus'
-  | 'journal'
+  | 'timeline'
   | 'insights'
+  | 'focus'
+  | 'categories'
   | 'profile'
   | 'settings';
 
-type ActivityMode = 'board' | 'timeline' | 'heatmap';
+type ActivityMode = 'board' | 'timeline' | 'calendar' | 'analytics';
 
 const NAV_GROUPS: { label: string; items: { id: SectionId; label: string; icon: React.ComponentType<{ className?: string }> }[] }[] = [
   {
-    label: 'Workspace',
+    label: 'Command',
     items: [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'evolution', label: 'Evolution', icon: Sparkles },
@@ -72,11 +83,12 @@ const NAV_GROUPS: { label: string; items: { id: SectionId; label: string; icon: 
     ],
   },
   {
-    label: 'Life System',
+    label: 'Workspace',
     items: [
-      { id: 'focus', label: 'Focus Sessions', icon: Gauge },
-      { id: 'journal', label: 'Journal', icon: NotebookPen },
+      { id: 'timeline', label: 'Timeline', icon: CalendarDays },
       { id: 'insights', label: 'Insights', icon: WandSparkles },
+      { id: 'focus', label: 'Focus', icon: Focus },
+      { id: 'categories', label: 'Categories', icon: Compass },
     ],
   },
   {
@@ -88,7 +100,14 @@ const NAV_GROUPS: { label: string; items: { id: SectionId; label: string; icon: 
   },
 ];
 
-const ACCENT_OPTIONS = ['#2f80ed', '#1f9d72', '#7c6cf2', '#c95f8f', '#b38b2e', '#d1843f', '#2f9db3', '#4f6fa8'];
+const ACCENT_OPTIONS = ['#68a7ff', '#34d399', '#a78bfa', '#fb7185', '#f59e0b', '#22d3ee', '#f472b6', '#94a3b8'];
+const THEME_OPTIONS: { id: ThemePreference; label: string; detail: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'deep-midnight', label: 'Deep Midnight', detail: 'Matte black, navy depth', icon: Moon },
+  { id: 'aurora-blue', label: 'Aurora Blue', detail: 'Cool cinematic blue', icon: Sparkles },
+  { id: 'crimson-gradient', label: 'Crimson Gradient', detail: 'Warm focused contrast', icon: Flame },
+  { id: 'arctic-light', label: 'Arctic Light', detail: 'Soft premium light', icon: Sun },
+  { id: 'system', label: 'System Sync', detail: 'Follow device theme', icon: Palette },
+];
 
 function formatHours(minutes: number) {
   if (minutes < 60) return `${minutes}m`;
@@ -110,11 +129,15 @@ function sectionTitle(id: SectionId) {
   return NAV_GROUPS.flatMap((group) => group.items).find((item) => item.id === id)?.label ?? 'Dashboard';
 }
 
-function ProgressRing({ value, label }: { value: number; label: string }) {
-  const safe = Math.max(0, Math.min(100, value));
+function getCategory(categoryId: string, categories: LifeCategory[]) {
+  return categories.find((category) => category.id === categoryId);
+}
+
+function ProgressRing({ value, label, compact = false }: { value: number; label: string; compact?: boolean }) {
+  const safe = Math.max(0, Math.min(100, Math.round(value)));
   return (
-    <div className="progress-ring" style={{ '--ring-value': `${safe * 3.6}deg` } as React.CSSProperties}>
-      <div className="progress-ring__inner">
+    <div className={cn('os-ring', compact && 'os-ring--compact')} style={{ '--ring-value': `${safe * 3.6}deg` } as React.CSSProperties}>
+      <div>
         <strong>{safe}</strong>
         <span>{label}</span>
       </div>
@@ -122,9 +145,9 @@ function ProgressRing({ value, label }: { value: number; label: string }) {
   );
 }
 
-function MetricTile({ label, value, detail }: { label: string; value: string | number; detail?: string }) {
+function MetricTile({ label, value, detail, tone }: { label: string; value: string | number; detail?: string; tone?: string }) {
   return (
-    <div className="metric-tile">
+    <div className="metric-tile" style={{ '--metric-tone': tone ?? 'var(--primary)' } as React.CSSProperties}>
       <span>{label}</span>
       <strong>{value}</strong>
       {detail ? <small>{detail}</small> : null}
@@ -132,13 +155,16 @@ function MetricTile({ label, value, detail }: { label: string; value: string | n
   );
 }
 
-function CategoryPill({ category }: { category: LifeCategory }) {
-  const Icon = getCategoryIcon(category.icon);
+function SectionHeader({ eyebrow, title, detail, action }: { eyebrow: string; title: string; detail?: string; action?: React.ReactNode }) {
   return (
-    <span className="category-pill" style={{ '--category-color': category.color } as React.CSSProperties}>
-      <Icon className="size-3.5" />
-      {category.label}
-    </span>
+    <div className="section-header">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h1>{title}</h1>
+        {detail ? <span>{detail}</span> : null}
+      </div>
+      {action}
+    </div>
   );
 }
 
@@ -164,37 +190,27 @@ function ShellSidebar({
           <Compass className="size-4" />
         </button>
         {!collapsed ? (
-          <div>
+          <div className="sidebar-copy">
             <strong>{APP_NAME}</strong>
             <span>{APP_VERSION} adaptive OS</span>
           </div>
         ) : null}
-        <button
-          type="button"
-          className="icon-button ml-auto"
-          onClick={() => setCollapsed(!collapsed)}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
+        <button type="button" className="icon-button" onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
           {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
         </button>
       </div>
 
-      <div className="sidebar-profile">
+      <button type="button" className="sidebar-profile" onClick={() => setActiveSection('profile')} title={collapsed ? 'Profile' : undefined}>
         <div className="avatar-shell">
-          {state.profile?.avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={state.profile.avatarUrl} alt="" />
-          ) : (
-            initials(state.profile?.name)
-          )}
+          {state.profile?.avatarUrl ? <img src={state.profile.avatarUrl} alt="" /> : initials(state.profile?.name)}
         </div>
         {!collapsed ? (
-          <div className="min-w-0">
+          <div>
             <strong>{state.profile?.name ?? 'Operator'}</strong>
             <span>{scores.tierLabel} | index {scores.evolutionIndex}</span>
           </div>
         ) : null}
-      </div>
+      </button>
 
       <nav className="sidebar-nav" aria-label="AscendOS sections">
         {NAV_GROUPS.map((group) => (
@@ -223,17 +239,34 @@ function ShellSidebar({
   );
 }
 
-function TopNav({
-  activeSection,
-  api,
-  setActiveSection,
-}: {
-  activeSection: SectionId;
-  api: AscendApi;
-  setActiveSection: (section: SectionId) => void;
-}) {
+function TopNav({ activeSection, api, setActiveSection }: { activeSection: SectionId; api: AscendApi; setActiveSection: (section: SectionId) => void }) {
   const { state, scores, updatePreferences } = api;
-  const nextTheme = state.preferences.theme === 'dark' ? 'light' : state.preferences.theme === 'light' ? 'system' : 'dark';
+  const [query, setQuery] = useState('');
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [clearedLogIds, setClearedLogIds] = useState<string[]>([]);
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return [
+      ...state.activities
+        .filter((activity) => activity.title.toLowerCase().includes(q))
+        .slice(0, 4)
+        .map((activity) => ({ id: activity.id, label: activity.title, detail: 'Activity', section: 'activities' as SectionId })),
+      ...state.goals
+        .filter((goal) => goal.title.toLowerCase().includes(q))
+        .slice(0, 3)
+        .map((goal) => ({ id: goal.id, label: goal.title, detail: 'Goal', section: 'goals' as SectionId })),
+      ...state.categories
+        .filter((category) => category.label.toLowerCase().includes(q))
+        .slice(0, 3)
+        .map((category) => ({ id: category.id, label: category.label, detail: 'Category', section: 'categories' as SectionId })),
+    ];
+  }, [query, state.activities, state.categories, state.goals]);
+
+  const notifications = state.evolutionLog.filter((entry) => !clearedLogIds.includes(entry.id)).slice(0, 6);
 
   return (
     <header className="top-nav">
@@ -241,36 +274,128 @@ function TopNav({
         <span>{APP_NAME}</span>
         <strong>{sectionTitle(activeSection)}</strong>
       </div>
-      <label className="global-search">
-        <Search className="size-4" />
-        <input placeholder="Search activities, goals, categories" />
-        <Command className="size-3.5" />
-      </label>
+
+      <div className="search-shell">
+        <label className="global-search">
+          <Search className="size-4" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search activities, goals, categories" />
+          <Command className="size-3.5" />
+        </label>
+        {query ? (
+          <div className="dropdown-panel search-results">
+            {results.length ? (
+              results.map((result) => (
+                <button
+                  key={`${result.detail}-${result.id}`}
+                  type="button"
+                  onClick={() => {
+                    setActiveSection(result.section);
+                    setQuery('');
+                  }}
+                >
+                  <strong>{result.label}</strong>
+                  <span>{result.detail}</span>
+                </button>
+              ))
+            ) : (
+              <p>No matching signal found.</p>
+            )}
+          </div>
+        ) : null}
+      </div>
+
       <div className="top-nav__actions">
-        <button type="button" className="icon-button" onClick={() => setActiveSection('activities')} aria-label="Log activity">
-          <Plus className="size-4" />
-        </button>
-        <button
-          type="button"
-          className="icon-button"
-          onClick={() => updatePreferences({ theme: nextTheme })}
-          aria-label="Toggle theme"
-        >
-          {state.preferences.theme === 'dark' ? <Moon className="size-4" /> : state.preferences.theme === 'light' ? <Sun className="size-4" /> : <SlidersHorizontal className="size-4" />}
-        </button>
-        <button type="button" className="icon-button" aria-label="Notifications">
-          <Bell className="size-4" />
-          <span className="notification-dot" />
-        </button>
+        <div className="menu-anchor">
+          <button type="button" className="icon-button" onClick={() => setQuickOpen(!quickOpen)} aria-label="Quick actions">
+            <Plus className="size-4" />
+          </button>
+          {quickOpen ? (
+            <div className="dropdown-panel action-menu">
+              {[
+                ['Log activity', 'activities', Activity],
+                ['Create goal', 'goals', Target],
+                ['Start focus', 'focus', Focus],
+                ['Customize system', 'settings', Settings],
+              ].map(([label, section, Icon]) => (
+                <button
+                  key={label as string}
+                  type="button"
+                  onClick={() => {
+                    setActiveSection(section as SectionId);
+                    setQuickOpen(false);
+                  }}
+                >
+                  <Icon className="size-4" />
+                  <span>{label as string}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="menu-anchor">
+          <button type="button" className="icon-button" onClick={() => setThemeOpen(!themeOpen)} aria-label="Choose theme">
+            <Palette className="size-4" />
+          </button>
+          {themeOpen ? (
+            <div className="dropdown-panel theme-menu">
+              {THEME_OPTIONS.map((theme) => {
+                const Icon = theme.icon;
+                return (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    className={state.preferences.theme === theme.id ? 'active' : ''}
+                    onClick={() => {
+                      updatePreferences({ theme: theme.id });
+                      setThemeOpen(false);
+                    }}
+                  >
+                    <Icon className="size-4" />
+                    <span>
+                      <strong>{theme.label}</strong>
+                      <small>{theme.detail}</small>
+                    </span>
+                    {state.preferences.theme === theme.id ? <Check className="size-4" /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="menu-anchor">
+          <button type="button" className="icon-button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notifications">
+            <Bell className="size-4" />
+            {notifications.length ? <span className="notification-dot" /> : null}
+          </button>
+          {notificationsOpen ? (
+            <div className="dropdown-panel notifications-panel">
+              <div className="mini-heading">
+                <strong>Live updates</strong>
+                <button type="button" onClick={() => setClearedLogIds(state.evolutionLog.map((entry) => entry.id))}>Clear</button>
+              </div>
+              {notifications.length ? (
+                notifications.map((entry) => (
+                  <button key={entry.id} type="button" onClick={() => setActiveSection('timeline')}>
+                    <span className="pulse-dot" />
+                    <span>
+                      <strong>{entry.title}</strong>
+                      <small>{entry.detail ?? entry.dateKey}</small>
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <p>No unread updates.</p>
+              )}
+            </div>
+          ) : null}
+        </div>
+
         <button type="button" className="top-avatar" onClick={() => setActiveSection('profile')}>
           <span>{scores.evolutionIndex}</span>
           <div className="avatar-shell avatar-shell--small">
-            {state.profile?.avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={state.profile.avatarUrl} alt="" />
-            ) : (
-              initials(state.profile?.name)
-            )}
+            {state.profile?.avatarUrl ? <img src={state.profile.avatarUrl} alt="" /> : initials(state.profile?.name)}
           </div>
         </button>
       </div>
@@ -279,156 +404,211 @@ function TopNav({
 }
 
 function DashboardHome({ api, setActiveSection }: { api: AscendApi; setActiveSection: (section: SectionId) => void }) {
-  const { state, scores, analytics, insights, toggleWidget } = api;
+  const { state, scores, analytics, insights, toggleWidget, moveDashboardWidget } = api;
   const widgets = state.dashboardWidgets.filter((widget) => widget.visible).sort((a, b) => a.order - b.order);
-  const topCategories = analytics.categoryBreakdown.filter((item) => item.minutes > 0).slice(0, 4);
+  const latest = state.activities[0];
   const maxTrend = Math.max(...analytics.productivityTrend, 1);
 
   return (
     <section className="workspace-section fade-in">
       <div className="hero-system">
-        <div>
+        <div className="hero-copy">
           <p className="eyebrow">Adaptive life operating system</p>
           <h1>{state.profile?.evolutionFocus || 'Build a calmer, sharper personal system.'}</h1>
           <p>
-            Your week is reading as {scores.tierLabel.toLowerCase()} with {formatHours(analytics.weeklySummary.totalMinutes)}
-            {' '}logged across {analytics.weeklySummary.activitiesCount} completed sessions.
+            {formatHours(analytics.weeklySummary.totalMinutes)} logged this week across {analytics.weeklySummary.activitiesCount} sessions.
+            Your current operating tier is {scores.tierLabel.toLowerCase()}.
           </p>
+          <div className="hero-actions">
+            <Button type="button" onClick={() => setActiveSection('activities')}><Plus className="size-4" />Log activity</Button>
+            <button type="button" className="ghost-button" onClick={() => setActiveSection('analytics')}>View analytics</button>
+          </div>
         </div>
-        <ProgressRing value={scores.evolutionIndex} label="index" />
+        <div className="hero-orbit">
+          <ProgressRing value={scores.evolutionIndex} label="index" />
+          <div>
+            <strong>{scores.evolutionPoints}</strong>
+            <span>evolution points</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="metric-grid metric-grid--dashboard">
+        <MetricTile label="Current streak" value={`${state.streak.current}d`} detail={`Longest ${state.streak.longest}d`} tone="#fb7185" />
+        <MetricTile label="Focus score" value={`${scores.focus}%`} detail={`${scores.discipline}% discipline`} tone="#68a7ff" />
+        <MetricTile label="Balance" value={`${analytics.balanceScore}%`} detail={analytics.weeklySummary.topCategory} tone="#34d399" />
+        <MetricTile label="Latest signal" value={latest ? formatHours(latest.durationMinutes) : 'None'} detail={latest?.title ?? 'Log your first activity'} tone="#a78bfa" />
       </div>
 
       <div className="widget-grid">
-        {widgets.map((widget) => {
-          if (widget.id === 'mission-control') {
-            return (
-              <article key={widget.id} className="product-panel product-panel--wide">
-                <div className="panel-heading">
-                  <div>
-                    <p className="eyebrow">Mission Control</p>
-                    <h2>Today at a glance</h2>
-                  </div>
-                  <button type="button" className="icon-button" onClick={() => toggleWidget(widget.id)} aria-label="Hide widget">
-                    <MoreHorizontal className="size-4" />
-                  </button>
-                </div>
-                <div className="metric-grid">
-                  <MetricTile label="Evolution points" value={scores.evolutionPoints} detail={`${scores.pointsToNextTier} to next tier`} />
-                  <MetricTile label="Current streak" value={`${state.streak.current}d`} detail={`Longest ${state.streak.longest}d`} />
-                  <MetricTile label="Week focus" value={`${scores.focus}%`} detail={`${scores.discipline}% discipline`} />
-                  <MetricTile label="Balance" value={`${analytics.balanceScore}%`} detail={analytics.weeklySummary.topCategory} />
-                </div>
-              </article>
-            );
-          }
-
-          if (widget.id === 'category-balance') {
-            return (
-              <article key={widget.id} className="product-panel">
-                <div className="panel-heading">
-                  <div>
-                    <p className="eyebrow">Category System</p>
-                    <h2>Life balance</h2>
-                  </div>
-                  <button type="button" className="text-button" onClick={() => setActiveSection('evolution')}>Manage</button>
-                </div>
-                <div className="stack-list">
-                  {(topCategories.length ? topCategories : analytics.categoryBreakdown.slice(0, 4)).map((item) => (
-                    <div key={item.id} className="balance-row">
-                      <span style={{ backgroundColor: item.color }} />
-                      <div>
-                        <strong>{item.label}</strong>
-                        <small>{formatHours(item.minutes)}</small>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            );
-          }
-
-          if (widget.id === 'focus-rhythm') {
-            return (
-              <article key={widget.id} className="product-panel">
-                <div className="panel-heading">
-                  <div>
-                    <p className="eyebrow">Focus Rhythm</p>
-                    <h2>Weekly graph</h2>
-                  </div>
-                </div>
-                <div className="bar-chart">
-                  {analytics.productivityTrend.map((value, index) => (
-                    <div key={index}>
-                      <span style={{ height: `${Math.max(8, (value / maxTrend) * 100)}%` }} />
-                      <small>{['S', 'M', 'T', 'W', 'T', 'F', 'S'][index]}</small>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            );
-          }
-
-          if (widget.id === 'activity-snapshot') {
-            return (
-              <article key={widget.id} className="product-panel">
-                <div className="panel-heading">
-                  <div>
-                    <p className="eyebrow">Activity Snapshot</p>
-                    <h2>Latest signals</h2>
-                  </div>
-                  <button type="button" className="text-button" onClick={() => setActiveSection('activities')}>Open</button>
-                </div>
-                <ActivityList activities={state.activities.slice(0, 4)} categories={state.categories} toggleActivity={api.toggleActivity} deleteActivity={api.deleteActivity} compact />
-              </article>
-            );
-          }
-
-          if (widget.id === 'evolution-graph') {
-            return (
-              <article key={widget.id} className="product-panel product-panel--wide">
-                <div className="panel-heading">
-                  <div>
-                    <p className="eyebrow">Evolution Graph</p>
-                    <h2>Behavioral dimensions</h2>
-                  </div>
-                </div>
-                <div className="dimension-grid">
-                  {[
-                    ['Focus', scores.focus],
-                    ['Discipline', scores.discipline],
-                    ['Balance', scores.balance],
-                    ['Consistency', scores.consistency],
-                    ['Growth', scores.growth],
-                  ].map(([label, value]) => (
-                    <div key={label}>
-                      <div className="dimension-label">
-                        <span>{label}</span>
-                        <strong>{value}</strong>
-                      </div>
-                      <div className="soft-track"><span style={{ width: `${value}%` }} /></div>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            );
-          }
-
-          return (
-            <article key={widget.id} className="product-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Insights</p>
-                  <h2>System prompts</h2>
-                </div>
-              </div>
-              <div className="insight-stack">
-                {insights.map((insight) => <p key={insight.id}>{insight.message}</p>)}
-              </div>
-            </article>
-          );
-        })}
+        {widgets.map((widget) => (
+          <DashboardWidget
+            key={widget.id}
+            id={widget.id}
+            title={widget.title}
+            api={api}
+            maxTrend={maxTrend}
+            insights={insights}
+            setActiveSection={setActiveSection}
+            onHide={() => toggleWidget(widget.id)}
+            onMoveUp={() => moveDashboardWidget(widget.id, -1)}
+            onMoveDown={() => moveDashboardWidget(widget.id, 1)}
+          />
+        ))}
       </div>
     </section>
+  );
+}
+
+function WidgetChrome({
+  title,
+  eyebrow,
+  children,
+  action,
+  onHide,
+  onMoveUp,
+  onMoveDown,
+  wide = false,
+}: {
+  title: string;
+  eyebrow: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+  onHide?: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  wide?: boolean;
+}) {
+  return (
+    <article className={cn('product-panel', wide && 'product-panel--wide')}>
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">{eyebrow}</p>
+          <h2>{title}</h2>
+        </div>
+        <div className="panel-tools">
+          {action}
+          {onMoveUp ? <button type="button" className="icon-button" onClick={onMoveUp} aria-label="Move widget up"><ArrowUp className="size-4" /></button> : null}
+          {onMoveDown ? <button type="button" className="icon-button" onClick={onMoveDown} aria-label="Move widget down"><ArrowDown className="size-4" /></button> : null}
+          {onHide ? <button type="button" className="icon-button" onClick={onHide} aria-label="Hide widget"><MoreHorizontal className="size-4" /></button> : null}
+        </div>
+      </div>
+      {children}
+    </article>
+  );
+}
+
+function DashboardWidget({
+  id,
+  title,
+  api,
+  maxTrend,
+  insights,
+  setActiveSection,
+  onHide,
+  onMoveUp,
+  onMoveDown,
+}: {
+  id: string;
+  title: string;
+  api: AscendApi;
+  maxTrend: number;
+  insights: { id: string; message: string }[];
+  setActiveSection: (section: SectionId) => void;
+  onHide: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const { state, scores, analytics } = api;
+
+  if (id === 'mission-control') {
+    return (
+      <WidgetChrome title="Today at a glance" eyebrow="Mission Control" wide onHide={onHide} onMoveUp={onMoveUp} onMoveDown={onMoveDown}>
+        <div className="control-grid">
+          <ProgressRing value={scores.tierProgressPct} label="tier" compact />
+          <div className="dimension-grid">
+            {[
+              ['Focus', scores.focus],
+              ['Discipline', scores.discipline],
+              ['Balance', scores.balance],
+              ['Consistency', scores.consistency],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <div className="dimension-label"><span>{label}</span><strong>{value}</strong></div>
+                <div className="soft-track"><span style={{ width: `${value}%` }} /></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </WidgetChrome>
+    );
+  }
+
+  if (id === 'category-balance') {
+    return (
+      <WidgetChrome title="Life balance" eyebrow="Category System" action={<button type="button" className="text-button" onClick={() => setActiveSection('categories')}>Manage</button>} onHide={onHide} onMoveUp={onMoveUp} onMoveDown={onMoveDown}>
+        <div className="stack-list">
+          {analytics.categoryBreakdown.slice(0, 5).map((item) => (
+            <div key={item.id} className="balance-row">
+              <span style={{ backgroundColor: item.color }} />
+              <div>
+                <strong>{item.label}</strong>
+                <small>{formatHours(item.minutes)}</small>
+              </div>
+            </div>
+          ))}
+        </div>
+      </WidgetChrome>
+    );
+  }
+
+  if (id === 'focus-rhythm') {
+    return (
+      <WidgetChrome title="Weekly graph" eyebrow="Focus Rhythm" onHide={onHide} onMoveUp={onMoveUp} onMoveDown={onMoveDown}>
+        <div className="bar-chart">
+          {analytics.productivityTrend.map((value, index) => (
+            <div key={`${value}-${index}`}>
+              <span style={{ height: `${Math.max(8, (value / maxTrend) * 100)}%` }} />
+              <small>{['S', 'M', 'T', 'W', 'T', 'F', 'S'][index]}</small>
+            </div>
+          ))}
+        </div>
+      </WidgetChrome>
+    );
+  }
+
+  if (id === 'activity-snapshot') {
+    return (
+      <WidgetChrome title="Latest signals" eyebrow="Activity Snapshot" action={<button type="button" className="text-button" onClick={() => setActiveSection('activities')}>Open</button>} onHide={onHide} onMoveUp={onMoveUp} onMoveDown={onMoveDown}>
+        <ActivityList activities={state.activities.slice(0, 4)} categories={state.categories} toggleActivity={api.toggleActivity} deleteActivity={api.deleteActivity} reorderActivities={api.reorderActivities} compact />
+      </WidgetChrome>
+    );
+  }
+
+  if (id === 'evolution-graph') {
+    return (
+      <WidgetChrome title="Behavioral dimensions" eyebrow="Evolution Graph" wide onHide={onHide} onMoveUp={onMoveUp} onMoveDown={onMoveDown}>
+        <div className="evolution-matrix">
+          {[
+            ['Focus', scores.focus, '#68a7ff'],
+            ['Discipline', scores.discipline, '#a78bfa'],
+            ['Balance', scores.balance, '#34d399'],
+            ['Consistency', scores.consistency, '#f59e0b'],
+            ['Growth', scores.growth, '#fb7185'],
+          ].map(([label, value, color]) => (
+            <MetricTile key={label} label={label as string} value={`${value}%`} detail="live score" tone={color as string} />
+          ))}
+        </div>
+      </WidgetChrome>
+    );
+  }
+
+  return (
+    <WidgetChrome title={title} eyebrow="Insights" onHide={onHide} onMoveUp={onMoveUp} onMoveDown={onMoveDown}>
+      <div className="insight-stack">
+        {insights.map((insight) => <p key={insight.id}>{insight.message}</p>)}
+      </div>
+    </WidgetChrome>
   );
 }
 
@@ -439,6 +619,8 @@ function ActivityComposer({ api }: { api: AscendApi }) {
   const [category, setCategory] = useState(activeCategories[0]?.id ?? 'coding');
   const [duration, setDuration] = useState(String(state.preferences.defaultActivityMinutes));
   const [notes, setNotes] = useState('');
+  const [completed, setCompleted] = useState(true);
+  const [justLogged, setJustLogged] = useState(false);
 
   useEffect(() => {
     if (!activeCategories.some((item) => item.id === category)) setCategory(activeCategories[0]?.id ?? 'coding');
@@ -452,14 +634,16 @@ function ActivityComposer({ api }: { api: AscendApi }) {
       category,
       durationMinutes: Math.max(1, Number(duration) || state.preferences.defaultActivityMinutes),
       notes: notes.trim() || undefined,
-      completed: true,
+      completed,
     });
     setTitle('');
     setNotes('');
+    setJustLogged(true);
+    window.setTimeout(() => setJustLogged(false), 900);
   }
 
   return (
-    <form onSubmit={submit} className="composer-panel">
+    <form onSubmit={submit} className={cn('composer-panel', justLogged && 'composer-panel--success')}>
       <div>
         <Label htmlFor="activity-title">Activity</Label>
         <Input id="activity-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Deep work, workout, edit session" />
@@ -474,14 +658,15 @@ function ActivityComposer({ api }: { api: AscendApi }) {
         <Label htmlFor="activity-duration">Minutes</Label>
         <Input id="activity-duration" type="number" min={1} value={duration} onChange={(event) => setDuration(event.target.value)} />
       </div>
+      <label className="toggle-row composer-toggle">
+        <input type="checkbox" checked={completed} onChange={(event) => setCompleted(event.target.checked)} />
+        Completed
+      </label>
       <div className="composer-notes">
         <Label htmlFor="activity-notes">Notes</Label>
-        <Textarea id="activity-notes" value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} />
+        <Textarea id="activity-notes" value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} placeholder="Optional signal, context, or reflection" />
       </div>
-      <Button type="submit">
-        <Plus className="size-4" />
-        Log
-      </Button>
+      <Button type="submit"><Plus className="size-4" />Log</Button>
     </form>
   );
 }
@@ -491,16 +676,17 @@ function ActivityList({
   categories,
   toggleActivity,
   deleteActivity,
+  reorderActivities,
   compact = false,
 }: {
   activities: ActivityRecord[];
   categories: LifeCategory[];
   toggleActivity: (id: string) => void;
   deleteActivity: (id: string) => void;
+  reorderActivities: (sourceId: string, targetId: string) => void;
   compact?: boolean;
 }) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
-  const categoryMap = new Map(categories.map((category) => [category.id, category]));
 
   if (activities.length === 0) {
     return <div className="empty-state">No activities logged yet.</div>;
@@ -509,21 +695,27 @@ function ActivityList({
   return (
     <div className={cn('activity-list', compact && 'activity-list--compact')}>
       {activities.map((activity) => {
-        const category = categoryMap.get(activity.category);
+        const category = getCategory(activity.category, categories);
         return (
           <article
             key={activity.id}
             className={cn('activity-card', draggedId === activity.id && 'activity-card--dragging')}
             draggable
             onDragStart={() => setDraggedId(activity.id)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => {
+              if (draggedId) reorderActivities(draggedId, activity.id);
+              setDraggedId(null);
+            }}
             onDragEnd={() => setDraggedId(null)}
           >
+            <GripVertical className="size-4 drag-handle" />
             <button type="button" onClick={() => toggleActivity(activity.id)} aria-label="Toggle activity">
               {activity.completed ? <CheckCircle2 className="size-4" /> : <Circle className="size-4" />}
             </button>
-            <div className="min-w-0">
+            <div>
               <strong>{activity.title}</strong>
-              <span>{formatHours(activity.durationMinutes)} | {category?.label ?? activity.category}</span>
+              <span>{formatHours(activity.durationMinutes)} | {category?.label ?? activity.category} | {activity.dateKey}</span>
               {!compact && activity.notes ? <p>{activity.notes}</p> : null}
             </div>
             {category ? <span className="activity-accent" style={{ backgroundColor: category.color }} /> : null}
@@ -543,24 +735,21 @@ function ActivitiesSection({ api }: { api: AscendApi }) {
 
   return (
     <section className="workspace-section fade-in">
-      <SectionHeader eyebrow="Activity Management" title="A flexible daily logging surface" action={<ActivityModeSwitch mode={mode} setMode={setMode} />} />
+      <SectionHeader
+        eyebrow="Activity Management"
+        title="A flexible daily logging surface"
+        detail="Board, timeline, calendar, and analytics modes all update from the same live activity stream."
+        action={<ActivityModeSwitch mode={mode} setMode={setMode} />}
+      />
       <ActivityComposer api={api} />
       {mode === 'board' ? (
-        <ActivityList activities={state.activities} categories={state.categories} toggleActivity={api.toggleActivity} deleteActivity={api.deleteActivity} />
+        <ActivityList activities={state.activities} categories={state.categories} toggleActivity={api.toggleActivity} deleteActivity={api.deleteActivity} reorderActivities={api.reorderActivities} />
       ) : mode === 'timeline' ? (
-        <div className="timeline-panel">
-          {state.evolutionLog.slice(0, 16).map((entry) => (
-            <div key={entry.id} className="timeline-item">
-              <span />
-              <div>
-                <strong>{entry.title}</strong>
-                <small>{entry.detail ?? entry.type} | {entry.dateKey}</small>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
+        <TimelinePanel api={api} />
+      ) : mode === 'calendar' ? (
         <HeatmapPanel heatmap={analytics.heatmap} />
+      ) : (
+        <AnalyticsSection api={api} embedded />
       )}
     </section>
   );
@@ -572,7 +761,8 @@ function ActivityModeSwitch({ mode, setMode }: { mode: ActivityMode; setMode: (m
       {[
         ['board', ListChecks],
         ['timeline', CalendarDays],
-        ['heatmap', Flame],
+        ['calendar', Flame],
+        ['analytics', BarChart3],
       ].map(([id, Icon]) => (
         <button key={id as string} type="button" className={mode === id ? 'active' : ''} onClick={() => setMode(id as ActivityMode)} aria-label={`${id} mode`}>
           <Icon className="size-4" />
@@ -582,9 +772,26 @@ function ActivityModeSwitch({ mode, setMode }: { mode: ActivityMode; setMode: (m
   );
 }
 
+function TimelinePanel({ api }: { api: AscendApi }) {
+  const { state } = api;
+  return (
+    <div className="timeline-panel">
+      {state.evolutionLog.length ? state.evolutionLog.slice(0, 24).map((entry) => (
+        <div key={entry.id} className="timeline-item">
+          <span />
+          <div>
+            <strong>{entry.title}</strong>
+            <small>{entry.detail ?? entry.type} | {entry.dateKey}</small>
+          </div>
+        </div>
+      )) : <div className="empty-state">Timeline is waiting for the first signal.</div>}
+    </div>
+  );
+}
+
 function HeatmapPanel({ heatmap }: { heatmap: { dateKey: string; minutes: number; intensity: number }[] }) {
   return (
-    <div className="product-panel">
+    <article className="product-panel product-panel--wide">
       <div className="panel-heading">
         <div>
           <p className="eyebrow">Consistency Heatmap</p>
@@ -596,19 +803,7 @@ function HeatmapPanel({ heatmap }: { heatmap: { dateKey: string; minutes: number
           <span key={day.dateKey} title={`${day.dateKey}: ${day.minutes}m`} data-intensity={day.intensity} />
         ))}
       </div>
-    </div>
-  );
-}
-
-function SectionHeader({ eyebrow, title, action }: { eyebrow: string; title: string; action?: React.ReactNode }) {
-  return (
-    <div className="section-header">
-      <div>
-        <p className="eyebrow">{eyebrow}</p>
-        <h1>{title}</h1>
-      </div>
-      {action}
-    </div>
+    </article>
   );
 }
 
@@ -618,6 +813,7 @@ function CategoryStudio({ api }: { api: AscendApi }) {
   const [group, setGroup] = useState<CategoryGroup>('productive');
   const [color, setColor] = useState(ACCENT_OPTIONS[0]);
   const [icon, setIcon] = useState(CATEGORY_ICON_OPTIONS[0]);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -628,7 +824,7 @@ function CategoryStudio({ api }: { api: AscendApi }) {
 
   return (
     <section className="workspace-section fade-in">
-      <SectionHeader eyebrow="Evolution Architecture" title="Design your life categories" />
+      <SectionHeader eyebrow="Category Ecosystem" title="Design your life workspaces" detail="Create, edit, reorder, hide, and analyze every category as a living workspace." />
       <form className="category-composer" onSubmit={submit}>
         <Input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="New category, e.g. Editing" />
         <select value={group} onChange={(event) => setGroup(event.target.value as CategoryGroup)}>
@@ -641,43 +837,95 @@ function CategoryStudio({ api }: { api: AscendApi }) {
         </select>
         <div className="swatch-row">
           {ACCENT_OPTIONS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={color === option ? 'active' : ''}
-              style={{ backgroundColor: option }}
-              onClick={() => setColor(option)}
-              aria-label={`Use ${option}`}
-            />
+            <button key={option} type="button" className={color === option ? 'active' : ''} style={{ backgroundColor: option }} onClick={() => setColor(option)} aria-label={`Use ${option}`} />
           ))}
         </div>
         <Button type="submit"><Plus className="size-4" />Create</Button>
       </form>
       <div className="category-grid">
         {state.categories.map((category) => {
-          const Icon = getCategoryIcon(category.icon);
           const minutes = analytics.categoryBreakdown.find((item) => item.id === category.id)?.minutes ?? 0;
           return (
-            <article key={category.id} className="category-card" style={{ '--category-color': category.color } as React.CSSProperties}>
-              <div>
-                <div className="category-icon"><Icon className="size-5" /></div>
-                <div>
-                  <strong>{category.label}</strong>
-                  <span>{category.group} | {formatHours(minutes)} this week</span>
-                </div>
-              </div>
-              <p>{category.description}</p>
-              <div className="category-actions">
-                <button type="button" onClick={() => moveCategory(category.id, -1)} aria-label="Move category up"><ChevronLeft className="size-4" /></button>
-                <button type="button" onClick={() => moveCategory(category.id, 1)} aria-label="Move category down"><ChevronRight className="size-4" /></button>
-                <button type="button" onClick={() => updateCategory({ ...category, active: !category.active })}>{category.active ? 'Active' : 'Hidden'}</button>
-                <button type="button" onClick={() => deleteCategory(category.id)} aria-label="Delete category"><Trash2 className="size-4" /></button>
-              </div>
-            </article>
+            <CategoryCard
+              key={category.id}
+              category={category}
+              minutes={minutes}
+              editing={editingId === category.id}
+              setEditing={(editing) => setEditingId(editing ? category.id : null)}
+              updateCategory={updateCategory}
+              deleteCategory={deleteCategory}
+              moveCategory={moveCategory}
+            />
           );
         })}
       </div>
     </section>
+  );
+}
+
+function CategoryCard({
+  category,
+  minutes,
+  editing,
+  setEditing,
+  updateCategory,
+  deleteCategory,
+  moveCategory,
+}: {
+  category: LifeCategory;
+  minutes: number;
+  editing: boolean;
+  setEditing: (editing: boolean) => void;
+  updateCategory: (category: LifeCategory) => void;
+  deleteCategory: (id: string) => void;
+  moveCategory: (id: string, direction: -1 | 1) => void;
+}) {
+  const Icon = getCategoryIcon(category.icon);
+  const [draft, setDraft] = useState(category);
+
+  useEffect(() => setDraft(category), [category]);
+
+  return (
+    <article className="category-card" style={{ '--category-color': category.color } as React.CSSProperties}>
+      <div className="category-card__top">
+        <div className="category-icon"><Icon className="size-5" /></div>
+        <div>
+          <strong>{category.label}</strong>
+          <span>{category.group} | {formatHours(minutes)} this week</span>
+        </div>
+      </div>
+
+      {editing ? (
+        <div className="category-edit">
+          <Input value={draft.label} onChange={(event) => setDraft({ ...draft, label: event.target.value })} />
+          <Textarea value={draft.description ?? ''} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={2} />
+          <select value={draft.icon} onChange={(event) => setDraft({ ...draft, icon: event.target.value })}>
+            {CATEGORY_ICON_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <div className="swatch-row">
+            {ACCENT_OPTIONS.map((option) => (
+              <button key={option} type="button" className={draft.color === option ? 'active' : ''} style={{ backgroundColor: option }} onClick={() => setDraft({ ...draft, color: option })} aria-label={`Use ${option}`} />
+            ))}
+          </div>
+          <div className="category-actions">
+            <button type="button" onClick={() => { updateCategory(draft); setEditing(false); }}>Save</button>
+            <button type="button" onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p>{category.description}</p>
+          <div className="soft-track"><span style={{ width: `${Math.min(100, minutes / 6)}%`, backgroundColor: category.color }} /></div>
+          <div className="category-actions">
+            <button type="button" onClick={() => moveCategory(category.id, -1)} aria-label="Move category up"><ArrowUp className="size-4" /></button>
+            <button type="button" onClick={() => moveCategory(category.id, 1)} aria-label="Move category down"><ArrowDown className="size-4" /></button>
+            <button type="button" onClick={() => updateCategory({ ...category, active: !category.active })}>{category.active ? 'Active' : 'Hidden'}</button>
+            <button type="button" onClick={() => setEditing(true)} aria-label="Edit category"><Edit3 className="size-4" /></button>
+            <button type="button" onClick={() => deleteCategory(category.id)} aria-label="Delete category"><Trash2 className="size-4" /></button>
+          </div>
+        </>
+      )}
+    </article>
   );
 }
 
@@ -709,45 +957,37 @@ function GoalsSection({ api }: { api: AscendApi }) {
         <Button type="submit"><Plus className="size-4" />Add</Button>
       </form>
       <div className="goal-grid">
-        {state.goals.map((goal) => {
+        {state.goals.length ? state.goals.map((goal) => {
           const pct = Math.min(100, Math.round((goal.currentValue / goal.targetValue) * 100));
           return (
             <article key={goal.id} className="product-panel">
               <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">{goal.period}</p>
-                  <h2>{goal.title}</h2>
-                </div>
-                <button type="button" className="icon-button" onClick={() => deleteGoal(goal.id)} aria-label="Delete goal">
-                  <Trash2 className="size-4" />
-                </button>
+                <div><p className="eyebrow">{goal.period}</p><h2>{goal.title}</h2></div>
+                <button type="button" className="icon-button" onClick={() => deleteGoal(goal.id)} aria-label="Delete goal"><Trash2 className="size-4" /></button>
               </div>
               <div className="soft-track"><span style={{ width: `${pct}%` }} /></div>
-              <div className="goal-footer">
-                <span>{goal.currentValue} / {goal.targetValue} {goal.unit}</span>
-                <strong>{pct}%</strong>
-              </div>
+              <div className="goal-footer"><span>{goal.currentValue} / {goal.targetValue} {goal.unit}</span><strong>{pct}%</strong></div>
               <input type="range" min={0} max={goal.targetValue} value={goal.currentValue} onChange={(event) => updateGoal({ ...goal, currentValue: Number(event.target.value) })} />
             </article>
           );
-        })}
+        }) : <div className="empty-state">No goals yet. Create one to begin shaping your rhythm.</div>}
       </div>
     </section>
   );
 }
 
-function AnalyticsSection({ api }: { api: AscendApi }) {
+function AnalyticsSection({ api, embedded = false }: { api: AscendApi; embedded?: boolean }) {
   const { scores, analytics } = api;
   const max = Math.max(...analytics.categoryBreakdown.map((item) => item.minutes), 1);
 
   return (
-    <section className="workspace-section fade-in">
-      <SectionHeader eyebrow="Analytics" title="Minimal behavioral intelligence" />
+    <section className={cn(!embedded && 'workspace-section fade-in')}>
+      {!embedded ? <SectionHeader eyebrow="Analytics" title="Behavioral intelligence cockpit" detail="Live category balance, evolution scoring, focus rhythm, and consistency signals." /> : null}
       <div className="analytics-layout">
         <article className="product-panel">
           <div className="panel-heading"><div><p className="eyebrow">Balance</p><h2>Category distribution</h2></div></div>
           <div className="category-bars">
-            {analytics.categoryBreakdown.slice(0, 8).map((item) => (
+            {analytics.categoryBreakdown.slice(0, 9).map((item) => (
               <div key={item.id}>
                 <div><span>{item.label}</span><strong>{formatHours(item.minutes)}</strong></div>
                 <div className="soft-track"><span style={{ width: `${(item.minutes / max) * 100}%`, backgroundColor: item.color }} /></div>
@@ -758,9 +998,9 @@ function AnalyticsSection({ api }: { api: AscendApi }) {
         <article className="product-panel">
           <div className="panel-heading"><div><p className="eyebrow">Score Model</p><h2>Evolution dimensions</h2></div></div>
           <div className="ring-row">
-            <ProgressRing value={scores.focus} label="focus" />
-            <ProgressRing value={scores.balance} label="balance" />
-            <ProgressRing value={scores.growth} label="growth" />
+            <ProgressRing value={scores.focus} label="focus" compact />
+            <ProgressRing value={scores.balance} label="balance" compact />
+            <ProgressRing value={scores.growth} label="growth" compact />
           </div>
         </article>
       </div>
@@ -769,8 +1009,110 @@ function AnalyticsSection({ api }: { api: AscendApi }) {
   );
 }
 
+function EvolutionSection({ api }: { api: AscendApi }) {
+  const { scores, state } = api;
+  return (
+    <section className="workspace-section fade-in">
+      <SectionHeader eyebrow="Evolution Workspace" title="Your adaptive growth model" detail="Milestones, tier progress, streaks, and active dimensions in one operating view." />
+      <div className="evolution-layout">
+        <article className="product-panel product-panel--wide">
+          <div className="control-grid">
+            <ProgressRing value={scores.evolutionIndex} label="index" />
+            <div className="dimension-grid">
+              <MetricTile label="Tier" value={scores.tierLabel} detail={`${scores.pointsToNextTier} points to next tier`} />
+              <MetricTile label="Streak" value={`${state.streak.current}d`} detail={`Longest ${state.streak.longest}d`} />
+              <MetricTile label="Points" value={scores.evolutionPoints} detail="all-time evolution" />
+            </div>
+          </div>
+        </article>
+        <div className="milestone-grid">
+          {state.milestones.map((milestone) => (
+            <article key={milestone.id} className={cn('milestone-card', milestone.unlocked && 'milestone-card--unlocked')}>
+              {milestone.unlocked ? <CheckCircle2 className="size-5" /> : <Circle className="size-5" />}
+              <strong>{milestone.title}</strong>
+              <span>{milestone.unlockedAt ? new Date(milestone.unlockedAt).toLocaleDateString() : 'Locked'}</span>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function InsightsSection({ api }: { api: AscendApi }) {
+  return (
+    <section className="workspace-section fade-in">
+      <SectionHeader eyebrow="Insights" title="Adaptive weekly summary" detail="Recommendations change as your activity system changes." />
+      <div className="insight-grid">
+        {api.insights.map((insight) => <article key={insight.id} className="product-panel"><p>{insight.message}</p></article>)}
+      </div>
+    </section>
+  );
+}
+
+function FocusSection({ api }: { api: AscendApi }) {
+  const defaultMinutes = api.state.preferences.defaultActivityMinutes;
+  const [minutes, setMinutes] = useState(defaultMinutes);
+  const [remaining, setRemaining] = useState(defaultMinutes * 60);
+  const [running, setRunning] = useState(false);
+  const [title, setTitle] = useState('Focused operating block');
+  const focusCategory = api.state.categories.find((category) => category.id === 'coding') ?? api.state.categories[0];
+
+  useEffect(() => {
+    if (running) return;
+    setRemaining(minutes * 60);
+  }, [minutes, running]);
+
+  useEffect(() => {
+    if (!running) return undefined;
+    const timer = window.setInterval(() => {
+      setRemaining((value) => {
+        if (value <= 1) {
+          window.clearInterval(timer);
+          setRunning(false);
+          api.logActivity({ title, category: focusCategory?.id ?? 'coding', durationMinutes: minutes, completed: true, notes: 'Completed focus session.' });
+          return 0;
+        }
+        return value - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [api, focusCategory?.id, minutes, running, title]);
+
+  const elapsedPct = Math.round(((minutes * 60 - remaining) / Math.max(1, minutes * 60)) * 100);
+  const display = `${Math.floor(remaining / 60).toString().padStart(2, '0')}:${(remaining % 60).toString().padStart(2, '0')}`;
+
+  return (
+    <section className="workspace-section fade-in">
+      <SectionHeader eyebrow="Focus Cockpit" title="Deep work session control" detail="Timer completion logs an activity and updates streaks, points, analytics, and timeline instantly." />
+      <div className="focus-cockpit product-panel product-panel--wide">
+        <ProgressRing value={elapsedPct} label={display} />
+        <div className="focus-controls">
+          <Input value={title} onChange={(event) => setTitle(event.target.value)} />
+          <label>
+            <span>Minutes</span>
+            <input type="range" min={5} max={180} step={5} value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} />
+            <strong>{minutes}m</strong>
+          </label>
+          <div className="hero-actions">
+            <Button type="button" onClick={() => setRunning(!running)}>{running ? 'Pause' : 'Start'}</Button>
+            <button type="button" className="ghost-button" onClick={() => { setRunning(false); setRemaining(minutes * 60); }}>Reset</button>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => api.logActivity({ title, category: focusCategory?.id ?? 'coding', durationMinutes: minutes, completed: true, notes: 'Logged from focus cockpit.' })}
+            >
+              Log now
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ProfileSection({ api }: { api: AscendApi }) {
-  const { state, updateProfile, scores } = api;
+  const { state, updateProfile, scores, resetAll } = api;
   const [draft, setDraft] = useState<UserProfile>(() => state.profile ?? {
     name: 'Operator',
     dailyTargetMinutes: 240,
@@ -786,36 +1128,44 @@ function ProfileSection({ api }: { api: AscendApi }) {
     updateProfile({ ...draft, onboardingComplete: true });
   }
 
+  function uploadAvatar(file?: File) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setDraft((prev) => ({ ...prev, avatarUrl: String(reader.result) }));
+    reader.readAsDataURL(file);
+  }
+
   return (
     <section className="workspace-section fade-in">
       <SectionHeader eyebrow="Account Center" title="Profile and personal operating preferences" />
       <div className="profile-layout">
         <article className="profile-card">
-          <div className="avatar-shell avatar-shell--large">
-            {draft.avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={draft.avatarUrl} alt="" />
-            ) : (
-              initials(draft.name)
-            )}
-          </div>
+          <div className="avatar-shell avatar-shell--large">{draft.avatarUrl ? <img src={draft.avatarUrl} alt="" /> : initials(draft.name)}</div>
           <h2>{draft.name || 'Operator'}</h2>
           <p>{draft.evolutionFocus || 'Adaptive personal evolution path'}</p>
+          <label className="upload-button">
+            <Upload className="size-4" />
+            Upload avatar
+            <input type="file" accept="image/*" onChange={(event) => uploadAvatar(event.target.files?.[0])} />
+          </label>
           <div className="metric-grid">
-            <MetricTile label="Profile" value="82%" detail="completion" />
+            <MetricTile label="Profile" value="Live" detail="local account" />
             <MetricTile label="Tier" value={scores.tierLabel} />
           </div>
         </article>
         <article className="product-panel">
           <div className="settings-grid">
             <div><Label>Name</Label><Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></div>
-            <div><Label>Avatar URL</Label><Input value={draft.avatarUrl ?? ''} onChange={(event) => setDraft({ ...draft, avatarUrl: event.target.value })} /></div>
             <div><Label>Location</Label><Input value={draft.location ?? ''} onChange={(event) => setDraft({ ...draft, location: event.target.value })} /></div>
             <div><Label>Focus window</Label><Input value={draft.focusWindow ?? ''} onChange={(event) => setDraft({ ...draft, focusWindow: event.target.value })} placeholder="Morning, evening, night" /></div>
+            <div><Label>Daily target minutes</Label><Input type="number" value={draft.dailyTargetMinutes} onChange={(event) => setDraft({ ...draft, dailyTargetMinutes: Number(event.target.value) || 0 })} /></div>
             <div className="settings-wide"><Label>Evolution focus</Label><Input value={draft.evolutionFocus ?? ''} onChange={(event) => setDraft({ ...draft, evolutionFocus: event.target.value })} /></div>
             <div className="settings-wide"><Label>Bio</Label><Textarea value={draft.bio ?? ''} onChange={(event) => setDraft({ ...draft, bio: event.target.value })} /></div>
           </div>
-          <Button type="button" onClick={save}>Save profile</Button>
+          <div className="hero-actions">
+            <Button type="button" onClick={save}>Save profile</Button>
+            <button type="button" className="danger-button" onClick={resetAll}><LogOut className="size-4" />Logout and reset</button>
+          </div>
         </article>
       </div>
     </section>
@@ -823,27 +1173,46 @@ function ProfileSection({ api }: { api: AscendApi }) {
 }
 
 function SettingsSection({ api }: { api: AscendApi }) {
-  const { state, updatePreferences, toggleWidget } = api;
+  const { state, updatePreferences, toggleWidget, moveDashboardWidget } = api;
   return (
     <section className="workspace-section fade-in">
       <SectionHeader eyebrow="Settings" title="System behavior and dashboard layout" />
       <div className="settings-layout">
         <article className="product-panel">
           <div className="panel-heading"><div><p className="eyebrow">Theme</p><h2>Visual system</h2></div></div>
+          <div className="theme-grid">
+            {THEME_OPTIONS.map((theme) => {
+              const Icon = theme.icon;
+              return (
+                <button key={theme.id} type="button" className={state.preferences.theme === theme.id ? 'active' : ''} onClick={() => updatePreferences({ theme: theme.id })}>
+                  <Icon className="size-4" />
+                  <strong>{theme.label}</strong>
+                  <span>{theme.detail}</span>
+                </button>
+              );
+            })}
+          </div>
           <div className="settings-grid">
-            <div>
-              <Label>Theme</Label>
-              <select value={state.preferences.theme} onChange={(event) => updatePreferences({ theme: event.target.value as typeof state.preferences.theme })}>
-                <option value="system">System</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </div>
             <div>
               <Label>Density</Label>
               <select value={state.preferences.density} onChange={(event) => updatePreferences({ density: event.target.value as typeof state.preferences.density })}>
                 <option value="calm">Calm</option>
                 <option value="compact">Compact</option>
+              </select>
+            </div>
+            <div>
+              <Label>Motion</Label>
+              <select value={state.preferences.motion} onChange={(event) => updatePreferences({ motion: event.target.value as typeof state.preferences.motion })}>
+                <option value="full">Full</option>
+                <option value="reduced">Reduced</option>
+              </select>
+            </div>
+            <div>
+              <Label>Productivity style</Label>
+              <select value={state.preferences.productivityStyle} onChange={(event) => updatePreferences({ productivityStyle: event.target.value as typeof state.preferences.productivityStyle })}>
+                <option value="deep-work">Deep work</option>
+                <option value="balanced">Balanced</option>
+                <option value="recovery-first">Recovery first</option>
               </select>
             </div>
             <div>
@@ -857,26 +1226,19 @@ function SettingsSection({ api }: { api: AscendApi }) {
           </div>
         </article>
         <article className="product-panel">
-          <div className="panel-heading"><div><p className="eyebrow">Dashboard</p><h2>Widget visibility</h2></div></div>
+          <div className="panel-heading"><div><p className="eyebrow">Dashboard</p><h2>Widget visibility and order</h2></div></div>
           <div className="widget-settings">
-            {state.dashboardWidgets.map((widget) => (
+            {[...state.dashboardWidgets].sort((a, b) => a.order - b.order).map((widget) => (
               <label key={widget.id}>
                 <input type="checkbox" checked={widget.visible} onChange={() => toggleWidget(widget.id)} />
                 <span>{widget.title}</span>
+                <button type="button" onClick={() => moveDashboardWidget(widget.id, -1)} aria-label="Move widget up"><ArrowUp className="size-4" /></button>
+                <button type="button" onClick={() => moveDashboardWidget(widget.id, 1)} aria-label="Move widget down"><ArrowDown className="size-4" /></button>
               </label>
             ))}
           </div>
         </article>
       </div>
-    </section>
-  );
-}
-
-function PlaceholderSection({ title, subtitle, children }: { title: string; subtitle: string; children?: React.ReactNode }) {
-  return (
-    <section className="workspace-section fade-in">
-      <SectionHeader eyebrow={title} title={subtitle} />
-      <div className="product-panel product-panel--wide">{children}</div>
     </section>
   );
 }
@@ -901,48 +1263,25 @@ export default function AscendAppShell({ api }: { api: AscendApi }) {
       case 'dashboard':
         return <DashboardHome api={api} setActiveSection={setActiveSection} />;
       case 'evolution':
-        return <CategoryStudio api={api} />;
+        return <EvolutionSection api={api} />;
       case 'activities':
         return <ActivitiesSection api={api} />;
       case 'goals':
         return <GoalsSection api={api} />;
       case 'analytics':
         return <AnalyticsSection api={api} />;
+      case 'timeline':
+        return <section className="workspace-section fade-in"><SectionHeader eyebrow="Timeline" title="Evolution timeline workspace" /><TimelinePanel api={api} /></section>;
+      case 'insights':
+        return <InsightsSection api={api} />;
+      case 'focus':
+        return <FocusSection api={api} />;
+      case 'categories':
+        return <CategoryStudio api={api} />;
       case 'profile':
         return <ProfileSection api={api} />;
       case 'settings':
         return <SettingsSection api={api} />;
-      case 'focus':
-        return (
-          <PlaceholderSection title="Focus Sessions" subtitle="Deep work cockpit">
-            <div className="focus-cockpit">
-              <ProgressRing value={api.scores.focus} label="focus" />
-              <div>
-                <h2>{formatHours(api.state.profile?.dailyTargetMinutes ?? 240)} daily active target</h2>
-                <p>Start with one clean session, then let activity logs build the focus rhythm.</p>
-                <Button type="button" onClick={() => setActiveSection('activities')}><Plus className="size-4" />Log focus block</Button>
-              </div>
-            </div>
-          </PlaceholderSection>
-        );
-      case 'journal':
-        return (
-          <PlaceholderSection title="Journal" subtitle="Reflection stream">
-            <div className="timeline-panel">
-              {api.state.evolutionLog.slice(0, 10).map((entry) => (
-                <div key={entry.id} className="timeline-item"><span /><div><strong>{entry.title}</strong><small>{entry.dateKey}</small></div></div>
-              ))}
-            </div>
-          </PlaceholderSection>
-        );
-      case 'insights':
-        return (
-          <PlaceholderSection title="Insights" subtitle="Adaptive weekly summary">
-            <div className="insight-stack">
-              {api.insights.map((insight) => <p key={insight.id}>{insight.message}</p>)}
-            </div>
-          </PlaceholderSection>
-        );
     }
   }, [activeSection, api]);
 
